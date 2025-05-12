@@ -1,9 +1,25 @@
+import glob
 import pandas as pd
-import os
-from datetime import date
-import shutil
-from openpyxl import load_workbook
-from openpyxl.styles import PatternFill, Font
+from pathlib import Path
+from openpyxl import Workbook
+from collections import Counter
+from openpyxl.styles import PatternFill
+
+def converter_mes_ano(mes, ano):
+    # Dicionário para converter nomes dos meses em números
+    meses = {
+        'JAN': '01', 'FEV': '02', 'MAR': '03', 'ABR': '04',
+        'MAI': '05', 'JUN': '06', 'JUL': '07', 'AGO': '08',
+        'SET': '09', 'OUT': '10', 'NOV': '11', 'DEZ': '12'
+    }
+    
+    # Converte o mês para número
+    mes_num = meses.get(mes.upper())
+    if not mes_num:
+        raise ValueError(f"Mês inválido: {mes}")
+    
+    # Retorna o período no formato YYYY-MM
+    return (f"{mes_num}-{ano}")
 
 def tratar_df(df):
     df = df.drop(df.columns[2:14], axis=1)
@@ -15,162 +31,135 @@ def tratar_df(df):
     df = df[1:]
     return df
 
-def mover_e_renomear_arquivo():
-    diretorio_arq_atual = "./atual"
-    arq_atual = os.listdir(diretorio_arq_atual)[0]
-    caminho_arq_atual = f"{diretorio_arq_atual}/{arq_atual}"
-    data_atual = date.today()
-    data_formatada = data_atual.strftime("%d-%m-%Y")
-    diretorio_destino = "./historico-sem-mei"
-    shutil.move(caminho_arq_atual, f"{diretorio_destino}/{data_formatada}.xlsx")
+def comparar_arquivos(pasta_arquivos):
+    arquivos = sorted(glob.glob(f"{pasta_arquivos}/*.xlsx"))
+    
+    if len(arquivos) < 2:
+        raise ValueError("É necessário pelo menos 2 arquivos excel para comparação")
+    
+    # Carrega todos os arquivos
+    dfs = {}
+    for arquivo in arquivos:
+        nome = Path(arquivo).stem
+        df = tratar_df(pd.read_excel(arquivo))
+        dfs[nome] = df
+    
+    # Cria um dicionário para consolidar todos os valores
+    consolidado = {}
+    
+    # Processa cada arquivo
+    for nome_arquivo, df in dfs.items():
+        for _, row in df.iterrows():
+            # Processa cada mês/coluna
+            for mes_col in [col for col in df.columns if col not in ['Tipo de Evento', 'ANO']]:
+                try:
+                    mes_ano = converter_mes_ano(mes_col, row['ANO'])
+                    chave = (row['Tipo de Evento'], mes_ano)
+                    
+                    if chave not in consolidado:
+                        consolidado[chave] = {'Tipo_Evento': row['Tipo de Evento'], 
+                                              'Mes_Ano': mes_ano}
+                    
+                    consolidado[chave][nome_arquivo] = row[mes_col]
+                except ValueError:
+                    continue
+    
+    # Converte para DataFrame
+    df_relatorio = pd.DataFrame(list(consolidado.values()))
+    
+    # Ordena por Mes_Ano e Tipo_Evento
+    df_relatorio = df_relatorio.sort_values(['Mes_Ano', 'Tipo_Evento'])
 
-def formatar_diferenca(df_atual, df_antigo, diff_indices, coluna, nome_arquivo_historico):
-    """Formata as diferenças entre os DataFrames para uma visualização mais clara"""
-    resultados = []
+    # Filtra apenas linhas com diferença entre os arquivos
+    arquivos_nomes = list(dfs.keys())
     
-    for idx in diff_indices:
-        if idx in df_atual.index and idx in df_antigo.index:
-            valor_atual = df_atual.at[idx, coluna]
-            valor_antigo = df_antigo.at[idx, coluna]
-            
-            # Só adiciona se os valores forem diferentes
-            if valor_atual != valor_antigo and not (pd.isna(valor_atual) and pd.isna(valor_antigo)):
-                tipo_evento = df_atual.at[idx, 'Tipo de Evento'] if 'Tipo de Evento' in df_atual.columns else 'N/A'
-                ano = df_atual.at[idx, 'ANO'] if 'ANO' in df_atual.columns else 'N/A'
-                
-                resultados.append({
-                    'Arquivo Histórico': nome_arquivo_historico,
-                    'ANO': ano,
-                    'Mês': coluna,
-                    'Tipo de Evento': tipo_evento,
-                    # 'Índice': idx,
-                    'Valor Atual': valor_atual,
-                    'Valor Antigo': valor_antigo,
-                })
+    colunas_valores = arquivos_nomes
+    df_diferencas = df_relatorio[df_relatorio[colunas_valores].nunique(axis=1) > 1]
     
-    return resultados
-
-def comparar():
-    # Cria diretório para resultados se não existir
-    if not os.path.exists("./resultados_comparacao"):
-        os.makedirs("./resultados_comparacao")
+    return df_diferencas
     
-    # Obtém o arquivo atual
-    arq_atual = os.listdir("./atual")[0]
-    nome_arquivo_atual = os.path.splitext(arq_atual)[0]
-    df_atual = pd.read_excel(f"./atual/{arq_atual}")
-    df_atual = tratar_df(df_atual)
-    
-    # Cria diretório histórico se não existir
-    if not os.path.isdir("./historico-sem-mei"):
-        os.mkdir("./historico-sem-mei")
-        
-    dir_historico = "./historico-sem-mei"
-    arquivos_historicos = os.listdir(dir_historico)
-    
-    # DataFrame para acumular todas as diferenças
-    todas_diferencas = pd.DataFrame()
-    
-    for arquivo_historico in arquivos_historicos:
-        print(f"\n{'='*50}")
-        print(f"Comparação com o arquivo: {arquivo_historico}")
-        print(f"{'='*50}")
-        
-        df_antigo = pd.read_excel(f"{dir_historico}/{arquivo_historico}")
-        df_antigo = tratar_df(df_antigo)
-        
-        # Encontra as diferenças
-        diferencas_arquivo = []
-        
-        # Identifica as colunas que existem em ambos os DataFrames
-        colunas_comuns = [col for col in df_atual.columns if col in df_antigo.columns]
-        
-        # Para cada coluna, verifica se há diferenças
-        for coluna in colunas_comuns:
-            if coluna not in ['Tipo de Evento', 'ANO']:  # Ignora colunas de metadata
-                # Encontra índices onde há diferenças
-                indices_com_diferencas = df_atual.index[df_atual[coluna] != df_antigo[coluna]].tolist()
-                
-                # Adiciona índices onde um tem valor e outro é NaN
-                indices_com_diferencas.extend(df_atual.index[pd.isna(df_atual[coluna]) & ~pd.isna(df_antigo[coluna])].tolist())
-                indices_com_diferencas.extend(df_atual.index[~pd.isna(df_atual[coluna]) & pd.isna(df_antigo[coluna])].tolist())
-                
-                # Remove duplicatas
-                indices_com_diferencas = list(set(indices_com_diferencas))
-                
-                if indices_com_diferencas:
-                    diferencas_formatadas = formatar_diferenca(df_atual, df_antigo, indices_com_diferencas, coluna, arquivo_historico)
-                    diferencas_arquivo.extend(diferencas_formatadas)
-        
-        if diferencas_arquivo:
-            # Converte para DataFrame e adiciona ao acumulador
-            df_diferencas_arquivo = pd.DataFrame(diferencas_arquivo)
-            todas_diferencas = pd.concat([todas_diferencas, df_diferencas_arquivo], ignore_index=True)
-            
-            print(f"\nDiferenças encontradas com {arquivo_historico}:")
-            print(df_diferencas_arquivo.to_string(index=False))
-        else:
-            print("Nenhuma diferença encontrada.")
-    
-    if not todas_diferencas.empty:
-        # Gera nome do arquivo de saída com data e nome do arquivo atual
-        data_atual = date.today().strftime("%d-%m-%Y")
-        caminho_saida = f"./resultados_comparacao/Comparação_{nome_arquivo_atual}_{data_atual}.xlsx"
-        
-        # Exporta para Excel
-        todas_diferencas.to_excel(caminho_saida, index=False)
-        
-        # Aplica formatação
-        aplicar_formatacao_excel(caminho_saida)
-        
-        print(f"\n{'='*50}")
-        print(f"Todas as diferenças foram consolidadas em: {caminho_saida}")
-        print(f"{'='*50}")
-    else:
-        print("\nNenhuma diferença encontrada em nenhuma das comparações.")
-    
-    # Move o arquivo atual para o histórico após a comparação
-    # mover_e_renomear_arquivo()
-
-def aplicar_formatacao_excel(caminho_arquivo):
-    """Aplica formatação ao arquivo Excel para destacar as diferenças"""
-    wb = load_workbook(caminho_arquivo)
+def criar_excel_destacado(df_relatorio, nome_arquivo="relatorio_diferencas.xlsx"):
+    # Cria um novo workbook
+    wb = Workbook()
     ws = wb.active
     
-    # Define estilos
-    cabecalho_estilo = PatternFill(start_color="0066CC", end_color="0066CC", fill_type="solid")
-    fonte_cabecalho = Font(color="FFFFFF", bold=True)
-    valor_atual_estilo = PatternFill(start_color="CCFFCC", end_color="CCFFCC", fill_type="solid")
-    valor_antigo_estilo = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid")
+    # Define os estilos para células
+    fill_diff = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")  # Amarelo (diferença da moda)
+    fill_high = PatternFill(start_color="FF9999", end_color="FF9999", fill_type="solid")  # Vermelho (valor mais alto)
+    fill_low = PatternFill(start_color="99FF99", end_color="99FF99", fill_type="solid")   # Verde (valor mais baixo)
     
-    # Formata cabeçalhos
-    for cell in ws[1]:
-        cell.fill = cabecalho_estilo
-        cell.font = fonte_cabecalho
+    # Escreve o cabeçalho
+    for col_idx, col_name in enumerate(df_relatorio.columns, 1):
+        ws.cell(row=1, column=col_idx, value=col_name)
     
-    # Formata as células de valores
-    for row in range(2, ws.max_row + 1):
-        valor_atual_cell = ws.cell(row=row, column=4)  # Coluna 'Valor Atual'
-        valor_antigo_cell = ws.cell(row=row, column=5)  # Coluna 'Valor Antigo'
+    # Escreve os dados e aplica a formatação condicional
+    for row_idx, (_, row) in enumerate(df_relatorio.iterrows(), 2):
+        # Escreve os valores das colunas não numéricas primeiro
+        for col_idx, col_name in enumerate(df_relatorio.columns, 1):
+            if col_name in ['Tipo_Evento', 'Mes_Ano']:
+                ws.cell(row=row_idx, column=col_idx, value=row[col_name])
         
-        valor_atual_cell.fill = valor_atual_estilo
-        valor_antigo_cell.fill = valor_antigo_estilo
+        # Pega os valores das colunas numéricas (da 3ª em diante)
+        valores = [row[col] for col in df_relatorio.columns[2:]]
+        
+        # Encontrar a moda (valor mais frequente)
+        counter = Counter(valores)
+        most_common = counter.most_common(1)
+        
+        if most_common[0][1] > 1:  # Se há moda (valor repetido)
+            moda = most_common[0][0]
+            # Destacar células diferentes da moda
+            for col_idx, col_name in enumerate(df_relatorio.columns[2:], 3):
+                cell = ws.cell(row=row_idx, column=col_idx, value=row[col_name])
+                if cell.value != moda:
+                    cell.fill = fill_diff
+        else:
+            # Se não há moda, encontrar o valor mais extremo
+            max_val = max(valores)
+            min_val = min(valores)
+            
+            # Destacar o máximo e mínimo
+            for col_idx, col_name in enumerate(df_relatorio.columns[2:], 3):
+                cell = ws.cell(row=row_idx, column=col_idx, value=row[col_name])
+                if cell.value == max_val:
+                    cell.fill = fill_high
+                elif cell.value == min_val:
+                    cell.fill = fill_low
     
-    # Ajusta largura das colunas
+    # Ajusta a largura das colunas automaticamente
     for column in ws.columns:
         max_length = 0
         column_letter = column[0].column_letter
         for cell in column:
             try:
-                if len(str(cell.value)) > max_length:
-                    max_length = len(str(cell.value))
+                value = str(cell.value) if cell.value is not None else ""
+                if len(value) > max_length:
+                    max_length = len(value)
             except:
                 pass
         adjusted_width = (max_length + 2)
         ws.column_dimensions[column_letter].width = adjusted_width
     
-    # Salva as alterações
-    wb.save(caminho_arquivo)
+    # Congela a primeira linha (cabeçalho)
+    ws.freeze_panes = 'A2'
+    
+    # Salva o arquivo
+    wb.save(nome_arquivo)
 
+# Exemplo de uso
 if __name__ == "__main__":
-    comparar()
+    pasta_arquivos = "./historico-sem-mei" 
+
+    try:
+        df_relatorio = comparar_arquivos(pasta_arquivos)
+        print("\nRelatório de Diferenças:")
+        print(df_relatorio)
+        
+        # Salva o relatório em CSV
+        df_relatorio.to_csv("relatorio_diferencas.csv", index=False)
+        print("\nRelatório salvo em 'relatorio_diferencas.csv'")
+        
+        criar_excel_destacado(df_relatorio)
+        print("\nExcel com células destacadas salvo em 'relatorio_diferencas.xlsx'")
+    except Exception as e:
+        print(f"Erro: {str(e)}")
