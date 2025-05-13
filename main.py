@@ -78,6 +78,35 @@ def processar_arquivos(pasta_arquivos, dia_referencia=5):
     
     return pd.DataFrame(resultados)
 
+
+def processar_flutuacoes(df_original):
+    # Filtra apenas linhas com valores válidos
+    df = df_original.copy()
+    
+    # Agrupa por indicador, mês e ano
+    grouped = df.groupby(['INDICADOR', 'MÊS INDICADOR', 'ANO INDICADOR'])
+    
+    resultados = []
+    
+    for (indicador, mes, ano), group in grouped:
+        valores = group['VALOR'].unique()
+        
+        # Só processa se houver mais de um valor único
+        if len(valores) > 1:
+            flutuacoes = len(valores) - 1  # Número de mudanças entre valores distintos
+            diff_max_min = max(valores) - min(valores)
+            
+            resultados.append({
+                'INDICADOR': indicador,
+                'MÊS INDICADOR': mes,
+                'ANO INDICADOR': ano,
+                'FLUTUAÇÕES': flutuacoes,
+                'DIF. MAX_MIN': diff_max_min
+            })
+    
+    return pd.DataFrame(resultados)
+
+
 # Exemplo de uso
 if __name__ == "__main__":
     pasta_arquivos = "../historico-sem-mei" 
@@ -85,11 +114,20 @@ if __name__ == "__main__":
     try:
         df_resultado = processar_arquivos(pasta_arquivos)
         print("\nResultado processado:")
-        print(df_resultado)
+        # print(df_resultado)
         
         # Salva o resultado em CSV
         df_resultado.to_csv("dados_consolidados.csv", index=False, sep=';', decimal=',')
         print("\nDados consolidados salvos em 'dados_consolidados.csv'")
+
+        # Processa as flutuações
+        df_flutuacoes = processar_flutuacoes(df_resultado)
         
+        # Exibe e salva o resultado
+        print("\nResultado das flutuações:")
+        print(df_flutuacoes)
+        
+        df_flutuacoes.to_csv("flutuacoes_indicadores.csv", index=False, sep='\t')
+        print("\nArquivo salvo como 'flutuacoes_indicadores.csv'")
     except Exception as e:
         print(f"Erro: {str(e)}")
