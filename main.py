@@ -17,8 +17,9 @@ def converter_mes_numero(mes):
     if not mes_num:
         raise ValueError(f"Mês inválido: {mes}")
     
-    # Retorna o período no formato YYYY-MM
+    # Retorna o período no formato numérico
     return (f"{mes_num}")
+
 
 def tratar_df(df):
     df = df.drop(df.columns[2:14], axis=1)
@@ -29,6 +30,7 @@ def tratar_df(df):
     df = df.set_axis(df.iloc[0], axis=1)
     df = df[1:]
     return df
+
 
 def determinar_valor_referencia(data_extracao_str, dia_referencia=5):
     """Determina se o valor é de referência baseado no dia da extração"""
@@ -80,7 +82,6 @@ def processar_arquivos(pasta_arquivos, dia_referencia=5):
 
 
 def processar_flutuacoes(df_original):
-    # Filtra apenas linhas com valores válidos
     df = df_original.copy()
     
     # Agrupa por indicador, mês e ano
@@ -107,27 +108,26 @@ def processar_flutuacoes(df_original):
     return pd.DataFrame(resultados)
 
 
-# Exemplo de uso
 if __name__ == "__main__":
     pasta_arquivos = "../historico-sem-mei" 
+    dia_referencia = 15
+    nome_arquivo_excel = "consolidado_indicadores.xlsx"
 
     try:
-        df_resultado = processar_arquivos(pasta_arquivos)
-        print("\nResultado processado:")
-        # print(df_resultado)
+        # Processa os arquivos originais
+        df_resultado = processar_arquivos(pasta_arquivos, dia_referencia)
         
-        # Salva o resultado em CSV
-        df_resultado.to_csv("dados_consolidados.csv", index=False, sep=';', decimal=',')
-        print("\nDados consolidados salvos em 'dados_consolidados.csv'")
-
         # Processa as flutuações
         df_flutuacoes = processar_flutuacoes(df_resultado)
         
-        # Exibe e salva o resultado
-        print("\nResultado das flutuações:")
-        print(df_flutuacoes)
+        # Cria um arquivo Excel com duas abas
+        with pd.ExcelWriter(nome_arquivo_excel, engine='openpyxl') as writer:
+            df_resultado.to_excel(writer, sheet_name='DADOS', index=False)
+            df_flutuacoes.to_excel(writer, sheet_name='ESTATÍSTICO', index=False)
         
-        df_flutuacoes.to_csv("flutuacoes_indicadores.csv", index=False, sep='\t')
-        print("\nArquivo salvo como 'flutuacoes_indicadores.csv'")
+        print(f"\nArquivo Excel gerado com sucesso: '{nome_arquivo_excel}'")
+        print(f"- Aba 'DADOS': {len(df_resultado)} registros")
+        print(f"- Aba 'ESTATÍSTICO': {len(df_flutuacoes)} indicadores com flutuações")
+        
     except Exception as e:
-        print(f"Erro: {str(e)}")
+        print(f"\nErro durante o processamento: {str(e)}")
