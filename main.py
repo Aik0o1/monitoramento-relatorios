@@ -3,6 +3,7 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 import os
+from datetime import date
 
 def converter_mes_numero(mes):
     # Dicionário para converter nomes dos meses em números
@@ -58,22 +59,21 @@ def processar_arquivos(pasta_arquivos, dia_referencia=5):
                 try:
                     valor = row[mes_col]
                     # Verifica se o valor deve ser incluído
-                    if (pd.notna(valor) and 
-                        str(valor).strip() not in ['', '-', '0', '0.0'] and
-                        float(valor) != 0):
+                    if (str(valor).strip() in ['', '-', '0', '0.0']):
+                        valor = 0
                         
-                        mes_numero = converter_mes_numero(mes_col)
-                        valor_ref = determinar_valor_referencia(data_extracao, dia_referencia)
-                        
-                        resultados.append({
-                            'ARQUIVO': nome_arquivo,
-                            'DATA EXTRAÇÃO': data_extracao,
-                            'INDICADOR': tipo_evento,
-                            'MÊS INDICADOR': mes_numero,
-                            'ANO INDICADOR': ano,
-                            'VALOR': int(valor),
-                            'VALOR DE REFERENCIA': valor_ref
-                        })
+                    mes_numero = converter_mes_numero(mes_col)
+                    valor_ref = determinar_valor_referencia(data_extracao, dia_referencia)
+                    
+                    resultados.append({
+                        'ARQUIVO': nome_arquivo,
+                        'DATA EXTRAÇÃO': data_extracao,
+                        'INDICADOR': tipo_evento,
+                        'MÊS INDICADOR': mes_numero,
+                        'ANO INDICADOR': ano,
+                        'VALOR': int(valor),
+                        'VALOR DE REFERENCIA': valor_ref
+                    })
                 except Exception as e:
                     print(f"Erro ao processar linha: {e}")
                     continue
@@ -109,9 +109,11 @@ def processar_flutuacoes(df_original):
 
 
 if __name__ == "__main__":
-    pasta_arquivos = "../historico-sem-mei" 
-    dia_referencia = 15
-    nome_arquivo_excel = "consolidado_indicadores.xlsx"
+    pasta_arquivos = "planilhas" 
+    dia_referencia = 5
+    data_atual = str(date.today()).replace("-", "")
+    # print(data_atual)
+    nome_arquivo_excel = f"monitoramento_bi_2_{data_atual}.xlsx"
 
     try:
         # Processa os arquivos originais
